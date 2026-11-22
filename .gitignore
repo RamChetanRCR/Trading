@@ -1,0 +1,19 @@
+# Personal data — never commit
+config/watchlist.yaml
+data/
+reports/
+*.db
+*.sqlite
+.env
+.env.*
+*.csv
+*.xlsx
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ipynb_checkpoints/
