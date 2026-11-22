@@ -2,148 +2,268 @@
 
 News-driven signals for short-term traders in Indian markets. It pulls the latest headlines
 for your watchlist from Google News, scores their sentiment, tags **why** a stock might move
-(order wins, upgrades, results, lock-in expiry, SEBI action…), and tells you what changed
+(order wins, broker upgrades, results, SEBI action, pledges…), and tells you **only what changed**
 since your last run. A pre-market mode reads overnight global cues (GIFT Nifty, Wall Street,
-Asia, crude, dollar, FII flows) and estimates the opening tone.
+Asia, FII flows, crude, rupee, US yields) and summarises the news backdrop for the open.
+
+![newsscan demo](docs/demo.gif)
+
+<sub>The animation uses `newsscan demo`: fictional companies and made-up headlines, no real data.</sub>
 
 > **Not investment advice.** Headlines are a noisy, lagging signal. Use this to decide *what to
 > look at*, then check price action, volume and the actual filings before trading.
 
-## Features
+---
 
-| Command | What it does |
-|---|---|
-| `newsscan scan` | Scans every symbol in your watchlist → signal, score, confidence, catalysts, top headlines |
-| `newsscan cues` | Pre-market: global cues → weighted **opening bias** (gap-up / flat / gap-down) |
-| `newsscan query "gold price"` | One-off scan for any search terms (the original gold scanner) |
-| `newsscan size` | Risk-based position sizing from entry, stop and target |
+## Getting started
 
-**How a signal is built**
+### 1. Prerequisites
 
-1. **Fetch** — Google News RSS per query, last 2 days by default, India edition.
-2. **De-duplicate** — the same story syndicated by five outlets counts once (newest copy kept).
-3. **Score** — VADER with a finance lexicon added (`surge`, `downgrade`, `selloff`, `fraud`…),
-   or FinBERT, or an ensemble of both.
-4. **Tag catalysts** — 13 rule-based tags; bullish/bearish ones nudge the headline score by ±0.15.
-5. **Weight by recency** — exponential decay, 24h half-life: yesterday's news counts half.
-6. **Aggregate** — one score in [-1, 1] plus a **confidence** that combines how much the
-   headlines agree and how many there are. Three headlines that all agree are still low-confidence.
-7. **Diff** — compares with the previous run (local SQLite) and reports **flips**
-   (Positive → Negative), **jumps** (score moved ≥ 0.3) and **new catalysts**. Optionally
-   pushes only those changes to your phone.
+- **Python 3.10 or newer** and **Git**
+- A terminal: **PowerShell** on Windows, **Terminal** on macOS / Linux
+- Internet access for real scans (the demo works offline)
 
-**Catalyst tags:** `results`, `order_win`, `rating_up`, `rating_down`, `block_deal`, `lock_in`,
-`ipo`, `corporate_action`, `m_and_a`, `regulatory`, `management`, `capex`, `pledge`.
-
-## Quick start
+Check Python:
 
 ```bash
-git clone https://github.com/RamChetanRCR/Trading.git && cd Trading
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt          # add -r requirements-finbert.txt for FinBERT
+python --version      # on macOS/Linux you may need: python3 --version
+```
 
-cp config/watchlist.example.yaml config/watchlist.yaml   # then edit your symbols
+### 2. Download the project
+
+```bash
+git clone https://github.com/RamChetanRCR/Trading.git
+cd Trading
+```
+
+### 3. Create a virtual environment
+
+This keeps the project's packages separate from the rest of your system.
+
+<table>
+<tr><th>Windows (PowerShell)</th><th>macOS / Linux</th></tr>
+<tr><td>
+
+```powershell
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+```
+
+If PowerShell blocks the script, run
+`Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` once,
+or use `.venv\Scripts\activate.bat` from Command Prompt.
+
+</td><td>
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+```
+
+</td></tr>
+</table>
+
+Your prompt should now start with `(.venv)`.
+
+### 4. Install
+
+```bash
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+Optional — the FinBERT model (≈ 2 GB with PyTorch; downloads the model on first use):
+
+```bash
+pip install -r requirements-finbert.txt
+```
+
+### 5. Try the demo (offline, 5 seconds)
+
+```bash
+python -m newsscan demo
+```
+
+You'll see a watchlist scan, the global-cues backdrop, a "next run" showing only what changed,
+and a position-size calculation — all on fictional data. If this works, your setup is fine.
+
+### 6. Add your own watchlist
+
+<table>
+<tr><th>Windows (PowerShell)</th><th>macOS / Linux</th></tr>
+<tr><td>
+
+```powershell
+Copy-Item config\watchlist.example.yaml config\watchlist.yaml
+```
+
+</td><td>
+
+```bash
+cp config/watchlist.example.yaml config/watchlist.yaml
+```
+
+</td></tr>
+</table>
+
+Open `config/watchlist.yaml` and list your stocks. It is **git-ignored**, so it never gets committed.
+
+```yaml
+watchlist:
+  - INFY                                    # short form: searches "INFY share"
+  - symbol: RELIANCE
+    queries: ["Reliance Industries share", "RIL stock"]
+    match: ["Reliance", "RIL"]              # optional: drop headlines that don't name the company
+```
+
+### 7. Run a real scan
+
+```bash
 python -m newsscan scan
 ```
 
-Or install it as a command: `pip install -e .` → `newsscan scan`.
+The first run records what it saw in `data/history.db` (also git-ignored). Every later run
+compares against it and lists only **new** information: a signal flipping direction, a score jump,
+or a new catalyst — and only if there are headlines you haven't seen before.
 
-### Examples
+---
+
+## Commands
+
+| Command | What it does |
+|---|---|
+| `newsscan demo` | Offline walkthrough on fictional companies |
+| `newsscan scan` | Scan your watchlist → signal, score, confidence, catalysts, top headlines, changes |
+| `newsscan cues` | Pre-market: global cues → news backdrop for the Indian open |
+| `newsscan query "gold price"` | One-off scan for any search terms |
+| `newsscan size` | Risk-based position size from entry, stop and target |
+
+Use `python -m newsscan …`, or run `pip install -e .` once to get a plain `newsscan` command.
 
 ```bash
-# Watchlist scan, write a Markdown report, push alerts only if something changed
-newsscan scan --markdown reports/today.md --notify
-
-# Before 9:15 — how is the market likely to open?
-newsscan cues
-
-# Any topic, any lookback
+newsscan scan --headlines 5                     # show more headlines per stock
+newsscan scan --markdown reports/today.md       # also write a Markdown report (or --json)
+newsscan scan --notify                          # push changes to your phone (see below)
+newsscan scan --model finbert                   # vader (default) | finbert | ensemble
 newsscan query "gold price" "gold forecast" --name GOLD --window 7d
 
-# FinBERT instead of VADER
-newsscan scan --model finbert
-
-# Size a long: ₹1L account, risk 1%, entry 500, stop 480, target 560
+# ₹1L account, risk 1%, long at 500, stop 480, target 560  →  50 shares, max loss ₹1,000, R:R 3.0
 newsscan size --capital 100000 --entry 500 --stop 480 --target 560
-# → Quantity: 50 · Max loss at stop ₹1,000 · Reward:risk 3.0
+newsscan size --capital 100000 --entry 500 --stop 520 --target 450 --side short
 ```
 
-The sizer caps any single position at 25% of capital (`--max-pct`) and warns when
-reward:risk is below 1.5, the stop is more than 8% away, or the target is on the wrong side.
+The sizer rejects a stop or target on the wrong side of entry, caps any position at 25% of
+capital (`--max-pct`), and warns when reward:risk is below 1.5 or the stop is more than 8% away.
 
-## Configuration
+## How a signal is built
 
-`config/watchlist.yaml` (git-ignored — your list never gets committed):
+1. **Fetch** — Google News RSS per query (last 2 days, India edition), 15 s timeout with retries.
+2. **Filter & de-duplicate** — optional `match` names; the same story from five outlets counts once.
+3. **Score** — VADER plus a finance lexicon. Plain VADER thinks "shares" is the verb *to share*
+   (+1.2) and "Nifty" means *cool*, so every stock headline leaned positive. The lexicon fixes
+   those and adds market verbs (*slips, sheds, net sellers…*). FinBERT and an ensemble are optional.
+4. **Tag catalysts** — 13 rule-based tags. Only clearly directional ones (order wins, broker
+   rating changes, regulatory action, management exits, pledges) nudge the score by ±0.15;
+   results, lock-ins, corporate actions, capex, M&A, block deals and IPOs are tagged but neutral.
+5. **Weight by recency** — 24 h half-life; undated headlines get almost no weight.
+6. **Aggregate** — a score in [-1, 1] and a **confidence** heuristic: recency-weighted agreement ×
+   coverage by *distinct publishers*. It is not a probability.
+7. **Diff** — compares with the last run and reports flips, jumps ≥ 0.3 and new catalysts, but
+   only when there are genuinely new headlines. History older than 90 days is pruned.
 
-```yaml
-settings:
-  window: 2d
-  half_life_hours: 24
-  model: vader        # vader | finbert | ensemble
-alerts:
-  jump: 0.3
-watchlist:
-  - INFY                                   # searches "INFY share"
-  - symbol: RELIANCE
-    queries: ["Reliance Industries share", "RIL stock"]
+**Global cues.** GIFT Nifty, US, Asia and FII flows use headline tone. Crude, the rupee and US
+yields use the **direction of the move** instead: "rupee weakens" is bad for India and "crude
+falls" is good, which tone alone gets wrong. The result is labelled as a *backdrop* (strongly
+positive … strongly negative), not a gap forecast.
+
+## Evaluation
+
+`evals/` holds 110 labelled headlines about fictional companies (positive / negative / neutral
+for the stock, plus expected catalyst tags), including tricky ones like "loss narrows",
+"cuts debt" and "F&O ban list".
+
+```bash
+python evals/run_evals.py                                  # VADER vs VADER + finance lexicon
+python evals/run_evals.py --models vader finbert ensemble  # needs requirements-finbert.txt
+python evals/run_evals.py --phrasebank                     # independent benchmark (pip install datasets)
 ```
 
-### Phone alerts (optional)
+Current results ([full report](evals/RESULTS.md)):
 
-Set environment variables — credentials are never read from the config file:
+| Model | Accuracy | Macro-F1 | Pos↔Neg flips |
+|---|---:|---:|---:|
+| Plain VADER | 56.4% | 0.565 | 13 / 110 |
+| VADER + finance lexicon | **78.2%** | **0.782** | 10 / 110 |
+
+Catalyst tagger: precision 0.98, recall 0.91.
+
+The set was written by the same author as the lexicon, so treat it as a regression guard rather
+than an unbiased benchmark; Financial PhraseBank (`--phrasebank`) is the independent check.
+CI fails if a change pushes these scores below their thresholds (`tests/test_evals.py`).
+
+## Phone alerts (optional)
+
+Credentials come from environment variables only, never from the config file. Alerts report a
+channel as sent only if the service confirmed delivery.
 
 | Channel | Variables |
 |---|---|
-| [ntfy](https://ntfy.sh) (free, easiest) | `NEWSSCAN_NTFY_TOPIC` (+ optional `NEWSSCAN_NTFY_SERVER`) |
+| [ntfy](https://ntfy.sh) (free, easiest) | `NEWSSCAN_NTFY_TOPIC` (+ optional `NEWSSCAN_NTFY_SERVER`, https only) |
 | Telegram bot | `NEWSSCAN_TELEGRAM_TOKEN`, `NEWSSCAN_TELEGRAM_CHAT_ID` |
 
-### Run it on a schedule
+## Run it on a schedule
+
+**macOS / Linux** (`crontab -e`, times in your machine's timezone):
 
 ```cron
-# Mon–Fri: global cues at 8:30, watchlist at 8:45 and every 2 hours during market
-30 8 * * 1-5   cd ~/Trading && .venv/bin/python -m newsscan cues --notify
-45 8 * * 1-5   cd ~/Trading && .venv/bin/python -m newsscan scan --notify
-35 10-14/2 * * 1-5 cd ~/Trading && .venv/bin/python -m newsscan scan --notify
+30 8 * * 1-5        cd ~/Trading && .venv/bin/python -m newsscan cues --notify
+45 8 * * 1-5        cd ~/Trading && .venv/bin/python -m newsscan scan --notify
+35 10-14/2 * * 1-5  cd ~/Trading && .venv/bin/python -m newsscan scan --notify
 ```
+
+**Windows** (Task Scheduler → Create Basic Task → Weekly, Mon–Fri):
+- Program: `C:\path\to\Trading\.venv\Scripts\python.exe`
+- Arguments: `-m newsscan scan --notify`
+- Start in: `C:\path\to\Trading`
 
 ## Your data stays local
 
-- `config/watchlist.yaml`, `data/` (run history), `reports/`, `.env`, CSV/XLSX files are all in `.gitignore`.
-- The repo only contains a generic example watchlist and synthetic test headlines for a
-  fictional company.
+- `config/watchlist.yaml`, `data/`, `reports/`, `.env` and CSV/XLSX files are git-ignored.
+- The repo contains only an example watchlist, synthetic test headlines and fictional demo data.
 - No broker login, API key or account data is needed or stored.
 
 ## Project layout
 
 ```
 newsscan/
-  fetch.py       Google News RSS, publisher split, de-duplication
-  sentiment.py   VADER (+finance lexicon), FinBERT (lazy), ensemble
-  catalysts.py   rule-based catalyst tags with directional bias
+  fetch.py       Google News RSS (timeout + retries), UTC timestamps, de-duplication
+  sentiment.py   VADER + finance lexicon, FinBERT (lazy), ensemble
+  catalysts.py   rule-based catalyst tags
   scoring.py     recency weighting, aggregation, confidence
-  cues.py        global cues → opening bias
-  history.py     SQLite run history and change detection
-  sizing.py      risk-based position sizing
+  cues.py        global cues: tone vs move-direction, news backdrop
+  history.py     SQLite run history, seen headlines, change detection, retention
+  sizing.py      risk-based position sizing (long / short)
+  config.py      watchlist loading + validation
   notify.py      ntfy / Telegram alerts
   report.py      terminal tables, Markdown, JSON
+  demo.py        fictional demo data
   cli.py         command-line entry point
-config/watchlist.example.yaml
+evals/           labelled headlines, eval runner, RESULTS.md
+scripts/         make_demo_gif.py (regenerates docs/demo.gif)
 tests/           offline tests (no network needed)
-notebooks/       VADER playground
 ```
 
 ## Development
 
 ```bash
 pip install -r requirements-dev.txt
-pytest -q
+pytest -q                                     # unit tests + eval regression guard
+python scripts/make_demo_gif.py               # regenerate the README animation (needs pillow)
 ```
-
-CI runs the test suite on Python 3.10 and 3.12 for every push and pull request.
 
 ## Limitations
 
-- Headline-only scoring: sarcasm, "falls less than expected", and mixed headlines can be misread.
-- The opening bias is built from news, not live prices — confirm against actual GIFT Nifty.
-- Google News results vary by region and time; scores are relative, not absolute.
-- `sentiment_analysis.py` is kept for backwards compatibility and runs the original gold scan.
+- Headline-only: no article bodies, no price data. Mixed or sarcastic headlines get misread.
+- Rule-based catalysts don't judge materiality (a ₹50 crore order is tagged like a ₹5,000 crore one).
+- The cues backdrop is a heuristic from news, not live prices.
+- Google News results vary by region and time; compare scores over time, not as absolutes.

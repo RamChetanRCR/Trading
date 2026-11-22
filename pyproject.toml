@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "newsscan"
-version = "2.0.0"
+version = "2.1.0"
 description = "News sentiment, catalyst tagging and global-cue opening bias for Indian market traders"
 readme = "README.md"
 requires-python = ">=3.10"

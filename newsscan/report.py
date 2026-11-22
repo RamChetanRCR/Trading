@@ -43,16 +43,18 @@ def print_signals(signals: list[Signal], show_headlines: int = 2) -> None:
 
 
 def print_cues(readings: list[CueReading], bias: float, tone: str) -> None:
-    t = Table(title="Global cues → Indian market opening", header_style="bold")
-    for col in ("Cue", "News tone", "Impact on India", "Weight", "Top headline"):
+    t = Table(title="Global cues → Indian market open", header_style="bold")
+    for col in ("Cue", "Reading", "Impact on India", "Weight", "Top headline"):
         t.add_column(col, overflow="fold")
     for r in readings:
         c = "green" if r.impact > 0.05 else "red" if r.impact < -0.05 else "yellow"
-        t.add_row(r.cue.name, f"{r.score:+.2f}", f"[{c}]{r.impact:+.2f}[/]", f"{r.cue.weight:g}", r.headline[:90])
+        reading = (("▲ up" if r.score > 0 else "▼ down" if r.score < 0 else "· flat") + f" {r.score:+.2f}"
+                   if r.cue.mode == "direction" else f"tone {r.score:+.2f}")
+        t.add_row(r.cue.name, reading, f"[{c}]{r.impact:+.2f}[/]", f"{r.cue.weight:g}", r.headline[:90])
     console.print(t)
     c = "green" if bias > 0.08 else "red" if bias < -0.08 else "yellow"
-    console.print(f"\n[bold]Opening bias:[/] [{c}]{bias:+.2f} — {tone}[/]")
-    console.print("[dim]News-based read only. Confirm with live GIFT Nifty before acting.[/]")
+    console.print(f"\n[bold]Opening backdrop:[/] [{c}]{bias:+.2f} — {tone}[/]")
+    console.print("[dim]Heuristic from headlines, not a gap forecast. Confirm with live GIFT Nifty before acting.[/]")
 
 
 def print_changes(changes: list[Change]) -> None:
@@ -64,19 +66,24 @@ def print_changes(changes: list[Change]) -> None:
         console.print(f"  • {ch.symbol}: {ch.kind} — {ch.detail}")
 
 
+def _md(text: str) -> str:
+    """Escape characters that break Markdown tables/links."""
+    return text.replace("\\", "\\\\").replace("|", "\\|").replace("[", "\\[").replace("]", "\\]").replace("\n", " ")
+
+
 def to_markdown(signals: list[Signal], changes: list[Change] | None = None) -> str:
     lines = [f"# Watchlist sentiment — {datetime.now():%Y-%m-%d %H:%M}", "",
              "| Symbol | Signal | Score | Confidence | Articles | Catalysts |",
              "|---|---|---:|---:|---:|---|"]
     for s in sorted(signals, key=lambda s: s.score, reverse=True):
-        lines.append(f"| {s.symbol} | {s.label} | {s.score:+.2f} | {s.confidence:.2f} | {s.n_articles} | "
+        lines.append(f"| {_md(s.symbol)} | {s.label} | {s.score:+.2f} | {s.confidence:.2f} | {s.n_articles} | "
                      f"{', '.join(s.top_catalysts) or '—'} |")
     if changes:
         lines += ["", "## Changes since last run", ""] + [f"- **{c.symbol}** {c.kind}: {c.detail}" for c in changes]
     for s in signals:
         if s.items:
             lines += ["", f"## {s.symbol}", ""]
-            lines += [f"- {it.adjusted:+.2f} [{it.article.title}]({it.article.link})" for it in s.items[:5]]
+            lines += [f"- {it.adjusted:+.2f} [{_md(it.article.title)}](<{it.article.link}>)" for it in s.items[:5]]
     return "\n".join(lines) + "\n"
 
 

@@ -6,14 +6,17 @@ import argparse
 import sys
 from pathlib import Path
 
-from . import __version__, config, cues, fetch, history, notify, report, scoring, sizing
+from . import __version__, config, cues, demo, fetch, history, notify, report, scoring, sizing
 from .sentiment import get_scorer
 
 
-def _signal_for(symbol: str, queries: list[str], scorer, *, region, window, per_query, half_life) -> scoring.Signal:
+def _signal_for(symbol: str, queries: list[str], scorer, *, region, window, per_query, half_life,
+                match: list[str] | None = None) -> scoring.Signal:
     arts = []
     for q in queries:
         arts.extend(fetch.fetch_news(q, limit=per_query, region=region, window=window))
+    if match:  # keep only headlines that actually name the company
+        arts = [x for x in arts if any(m.lower() in x.title.lower() for m in match)]
     scored = scoring.score_articles(fetch.dedupe(arts), scorer, half_life_hours=half_life)
     return scoring.aggregate(symbol, scored)
 
@@ -26,15 +29,24 @@ def cmd_scan(a) -> int:
         for s in cfg.symbols:
             st.update(f"Scanning {s.symbol}...")
             signals.append(_signal_for(s.symbol, s.queries, scorer, region=cfg.region, window=cfg.window,
-                                       per_query=cfg.per_query, half_life=cfg.half_life_hours))
+                                       per_query=cfg.per_query, half_life=cfg.half_life_hours, match=s.match))
     report.print_signals(signals, show_headlines=a.headlines)
 
     changes = []
     if not a.no_history:
         h = history.History(a.db)
         for sig in signals:
-            changes += history.diff(h.last(sig.symbol), sig, jump=cfg.alerts.get("jump", 0.3))
+            prev = h.last(sig.symbol)
+            fresh = h.mark_seen(sig) if prev is not None else None
+            sig_changes = history.diff(prev, sig, jump=cfg.alerts.get("jump", 0.3), new_articles=fresh)
+            if fresh:
+                for ch in sig_changes:
+                    ch.detail += f" ({fresh} new headline{'s' if fresh > 1 else ''})"
+            elif prev is None:
+                h.mark_seen(sig)
+            changes += sig_changes
         h.save(signals)
+        h.prune(cfg.alerts.get("keep_days", 90))
         h.close()
         report.console.print()
         report.print_changes(changes)
@@ -59,13 +71,12 @@ def cmd_cues(a) -> int:
     readings = []
     with report.console.status("Reading global cues..."):
         for c in cues.DEFAULT_CUES:
-            sig = _signal_for(c.name, [c.query], scorer, region="US" if c.name == "US markets" else "IN",
-                              window="1d", per_query=12, half_life=8)
-            readings.append(cues.CueReading(c, sig.score, sig.confidence, sig.n_articles, sig.headline))
+            arts = fetch.dedupe(fetch.fetch_news(c.query, limit=12, region=c.region, window="1d"))
+            readings.append(cues.read_cue(c, arts, scorer))
     bias, tone = cues.opening_bias(readings)
     report.print_cues(readings, bias, tone)
     if a.notify:
-        notify.send("Pre-market opening bias", f"{bias:+.2f} — {tone}")
+        notify.send("Pre-market news backdrop", f"{bias:+.2f} — {tone}")
     return 0
 
 
@@ -78,15 +89,59 @@ def cmd_query(a) -> int:
 
 
 def cmd_size(a) -> int:
-    p = sizing.size_position(a.capital, a.entry, a.stop, a.risk, a.target, a.max_pct)
+    p = sizing.size_position(a.capital, a.entry, a.stop, a.risk, a.target, a.max_pct, side=a.side)
     c = report.console
-    c.print(f"[bold]Quantity:[/] {p.qty}")
+    c.print(f"[bold]Quantity:[/] {p.qty}  ({a.side})")
     c.print(f"Capital used: ₹{p.capital_used:,.2f} ({p.pct_of_capital}% of account)")
     c.print(f"Max loss at stop: ₹{p.risk_amount:,.2f}  (₹{p.risk_per_share} per share)")
     if p.reward_risk is not None:
         c.print(f"Reward:risk = {p.reward_risk}")
     for w in p.warnings:
         c.print(f"[yellow]⚠ {w}[/]")
+    return 0
+
+
+def cmd_demo(a) -> int:
+    """Offline walkthrough on fictional companies — no internet, no config, nothing saved."""
+    import tempfile
+
+    scorer = get_scorer("vader")
+    c = report.console
+
+    def scan(article_fn):
+        return [scoring.aggregate(s, scoring.score_articles(fetch.dedupe(article_fn(s)), scorer))
+                for s in demo.symbols()]
+
+    c.print(f"[bold cyan]NewsSentimentScanner[/] v{__version__} · [dim]demo mode: fictional companies, "
+            "made-up headlines, offline[/]")
+    c.rule("[bold]1. Watchlist scan[/] — sentiment + catalysts per stock")
+    first = scan(demo.symbol_articles)
+    report.print_signals(first, show_headlines=a.headlines)
+
+    c.rule("[bold]2. Pre-market global cues[/]")
+    readings = [cues.read_cue(cue, demo.cue_articles(cue.name), scorer) for cue in cues.DEFAULT_CUES]
+    report.print_cues(readings, *cues.opening_bias(readings))
+
+    c.rule("[bold]3. Next run[/] — only what changed gets pushed to your phone")
+    with tempfile.TemporaryDirectory() as tmp:
+        h = history.History(Path(tmp) / "demo.db")
+        for sig in first:
+            h.mark_seen(sig)
+        h.save(first)
+        second = scan(demo.next_run_articles)
+        changes = []
+        for sig in second:
+            prev = h.last(sig.symbol)
+            fresh = h.mark_seen(sig)
+            for ch in history.diff(prev, sig, new_articles=fresh):
+                ch.detail += f" ({fresh} new headline{'s' if fresh > 1 else ''})"
+                changes.append(ch)
+        h.close()
+    report.print_changes(changes)
+
+    c.rule("[bold]4. Position size[/] — ₹1,00,000 account, 1% risk")
+    cmd_size(argparse.Namespace(capital=100_000, entry=500, stop=480, target=560, risk=1.0, max_pct=25.0,
+                                side="long"))
     return 0
 
 
@@ -106,7 +161,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--notify", action="store_true", help="Push alerts when signals change (see README)")
     s.set_defaults(func=cmd_scan)
 
-    c = sub.add_parser("cues", help="Pre-market: global cues → expected Indian opening bias")
+    c = sub.add_parser("cues", help="Pre-market: global cues → news backdrop for the Indian open")
     c.add_argument("-m", "--model", default="vader", choices=["vader", "finbert", "ensemble"])
     c.add_argument("--notify", action="store_true")
     c.set_defaults(func=cmd_cues)
@@ -127,8 +182,13 @@ def build_parser() -> argparse.ArgumentParser:
     z.add_argument("--stop", type=float, required=True)
     z.add_argument("--target", type=float)
     z.add_argument("--risk", type=float, default=1.0, help="Percent of capital to risk (default 1)")
+    z.add_argument("--side", choices=["long", "short"], default="long")
     z.add_argument("--max-pct", type=float, default=25.0, help="Max position as %% of capital")
     z.set_defaults(func=cmd_size)
+
+    d = sub.add_parser("demo", help="Offline demo on fictional companies (no internet needed)")
+    d.add_argument("--headlines", type=int, default=1)
+    d.set_defaults(func=cmd_demo)
     return p
 
 
@@ -136,7 +196,7 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         return args.func(args)
-    except (ValueError, FileNotFoundError) as e:
+    except (ValueError, FileNotFoundError) as e:  # ConfigError is a ValueError
         report.console.print(f"[red]Error:[/] {e}")
         return 2
 

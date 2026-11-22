@@ -41,7 +41,7 @@ class Signal:
 
 def recency_weight(age_hours: float | None, half_life_hours: float) -> float:
     if age_hours is None:
-        return 0.5  # unknown date: count it, but less
+        return 0.1  # unknown date could be months old: keep it visible but nearly weightless
     return 0.5 ** (age_hours / half_life_hours)
 
 
@@ -66,10 +66,14 @@ def aggregate(symbol: str, scored: list[ScoredArticle], threshold: float = 0.05)
     labels = [label(s.adjusted, threshold) for s in scored]
     pos, neg, neu = labels.count("Positive"), labels.count("Negative"), labels.count("Neutral")
 
-    # Confidence: do the headlines agree with the overall direction, and is there enough of them?
-    direction = 1 if score > 0 else -1 if score < 0 else 0
-    agree = (pos if direction > 0 else neg if direction < 0 else neu) / len(scored)
-    volume = 1 - math.exp(-len(scored) / 6)  # ~0.5 at 4 headlines, ~0.8 at 10
+    # Confidence (a heuristic, NOT a probability): recency-weighted share of headlines agreeing
+    # with the overall direction x how much independent coverage there is. Coverage counts
+    # distinct publishers, so one press release syndicated five times doesn't look like consensus.
+    overall = label(score, threshold)
+    agree = sum(s.weight for s, lb in zip(scored, labels) if lb == overall) / total_w
+    publishers = len({s.article.source.lower() for s in scored if s.article.source}) or 1
+    coverage = min(len(scored), publishers + 1)
+    volume = 1 - math.exp(-coverage / 6)  # ~0.5 at 4 sources, ~0.8 at 10
     confidence = round(agree * volume, 2)
 
     counts: dict[str, int] = {}
