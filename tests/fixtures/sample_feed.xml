@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Synthetic headlines for tests. Fictional company, not real news. -->
+<rss version="2.0">
+<channel>
+<title>"ACME" - Google News</title>
+<item>
+  <title>Acme Ltd shares surge after company bags Rs 500 crore order - Example Times</title>
+  <link>https://example.com/1</link>
+  <pubDate>Sun, 22 Nov 2026 04:00:00 GMT</pubDate>
+  <source url="https://example.com">Example Times</source>
+</item>
+<item>
+  <title>Acme Ltd shares surge after company bags Rs 500 crore order - Example Wire</title>
+  <link>https://example.com/2</link>
+  <pubDate>Sun, 22 Nov 2026 02:00:00 GMT</pubDate>
+  <source url="https://example.org">Example Wire</source>
+</item>
+<item>
+  <title>Broker upgrades Acme Ltd to buy, raises target - Example Markets</title>
+  <link>https://example.com/3</link>
+  <pubDate>Sat, 21 Nov 2026 10:00:00 GMT</pubDate>
+  <source url="https://example.net">Example Markets</source>
+</item>
+<item>
+  <title>SEBI issues show-cause notice to Acme Ltd promoter - Example Daily</title>
+  <link>https://example.com/4</link>
+  <pubDate>Fri, 20 Nov 2026 10:00:00 GMT</pubDate>
+  <source url="https://example.info">Example Daily</source>
+</item>
+</channel>
+</rss>

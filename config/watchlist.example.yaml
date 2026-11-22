@@ -1,0 +1,23 @@
+# Example watchlist — a template only, not a recommendation or anyone's real holdings.
+# Copy to config/watchlist.yaml (git-ignored) and put your own symbols there.
+
+settings:
+  region: IN            # Google News edition
+  window: 2d            # lookback for headlines
+  per_query: 15         # headlines per search query
+  half_life_hours: 24   # a 24h-old headline counts half as much as a fresh one
+  model: vader          # vader | finbert | ensemble
+
+alerts:
+  jump: 0.3             # alert if a score moves at least this much between runs
+
+watchlist:
+  # Short form: just the symbol (searches "<SYMBOL> share")
+  - INFY
+  # Long form: your own search queries per symbol
+  - symbol: RELIANCE
+    queries: ["Reliance Industries share", "RIL stock"]
+  - symbol: TATAMOTORS
+    queries: ["Tata Motors share"]
+  - symbol: GOLD
+    queries: ["gold price India", "gold forecast"]
