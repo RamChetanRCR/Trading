@@ -29,15 +29,26 @@ def size_position(
     risk_pct: float = 1.0,
     target: float | None = None,
     max_position_pct: float = 25.0,
+    side: str = "long",
 ) -> Position:
+    side = side.lower()
+    if side not in ("long", "short"):
+        raise ValueError("side must be 'long' or 'short'")
     if capital <= 0 or entry <= 0 or stop <= 0:
         raise ValueError("capital, entry and stop must be positive")
-    if stop == entry:
-        raise ValueError("stop cannot equal entry")
     if not 0 < risk_pct <= 100:
         raise ValueError("risk_pct must be in (0, 100]")
+    if not 0 < max_position_pct <= 100:
+        raise ValueError("max_position_pct must be in (0, 100]")
+    long = side == "long"
+    # Direction is explicit: a stop on the wrong side is an input mistake, not a short trade.
+    if long and stop >= entry:
+        raise ValueError("for a long, the stop must be below entry")
+    if not long and stop <= entry:
+        raise ValueError("for a short, the stop must be above entry")
+    if target is not None and (target <= entry if long else target >= entry):
+        raise ValueError(f"for a {side}, the target must be {'above' if long else 'below'} entry")
 
-    long = stop < entry
     rps = abs(entry - stop)
     risk_amount = capital * risk_pct / 100
     qty = math.floor(risk_amount / rps)
@@ -53,12 +64,9 @@ def size_position(
     rr = None
     if target is not None:
         reward = (target - entry) if long else (entry - target)
-        if reward <= 0:
-            warnings.append("target is on the wrong side of entry")
-        else:
-            rr = round(reward / rps, 2)
-            if rr < 1.5:
-                warnings.append(f"reward:risk {rr} is below 1.5")
+        rr = round(reward / rps, 2)
+        if rr < 1.5:
+            warnings.append(f"reward:risk {rr} is below 1.5")
 
     if rps / entry > 0.08:
         warnings.append(f"stop is {rps / entry:.0%} away — wide for a short-term trade")

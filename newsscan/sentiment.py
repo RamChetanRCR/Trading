@@ -8,20 +8,44 @@
 
 from __future__ import annotations
 
+import re
 from functools import lru_cache
 from typing import Protocol
 
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 
 # Finance words VADER's general lexicon gets wrong or misses entirely.
+# Single tokens only — VADER tokenises on whitespace. Multi-word phrases go in FINANCE_PHRASES.
 FINANCE_LEXICON = {
-    "surge": 2.0, "surges": 2.0, "soar": 2.2, "soars": 2.2, "rally": 1.8, "rallies": 1.8,
-    "jumps": 1.6, "gains": 1.4, "beats": 1.8, "upgrade": 1.8, "upgraded": 1.8, "outperform": 1.6,
-    "bullish": 2.0, "record high": 1.8, "buyback": 1.4, "order win": 1.8,
-    "plunge": -2.2, "plunges": -2.2, "slump": -2.0, "slumps": -2.0, "tumbles": -2.0, "crash": -2.6,
-    "falls": -1.4, "slips": -1.2, "misses": -1.8, "downgrade": -1.8, "downgraded": -1.8,
-    "bearish": -2.0, "underperform": -1.6, "selloff": -2.0, "sell-off": -2.0, "probe": -1.4,
-    "penalty": -1.6, "default": -2.2, "fraud": -2.8, "resigns": -1.2, "pledge": -0.8,
+    # Neutralise words that are positive in everyday English but neutral in market news.
+    "share": 0.0, "shares": 0.0, "stock": 0.0, "stocks": 0.0, "interest": 0.0, "trust": 0.0,
+    "credit": 0.0, "bond": 0.0, "bonds": 0.0, "security": 0.0, "securities": 0.0, "fund": 0.0,
+    "funds": 0.0,
+    # Index / company names that VADER reads as sentiment words (Nifty, GIFT Nifty, Yes Bank,
+    # Hero MotoCorp, United Spirits, Care Ratings, Tata Power, Adani Energy, block deals...).
+    "nifty": 0.0, "gift": 0.0, "yes": 0.0, "hero": 0.0, "united": 0.0, "care": 0.0, "energy": 0.0,
+    "super": 0.0, "fine": 0.0, "free": 0.0, "block": 0.0, "flat": 0.0, "bonus": 0.4,
+    # Up moves
+    "surge": 2.0, "surges": 2.0, "surged": 2.0, "soar": 2.2, "soars": 2.2, "rally": 1.8, "rallies": 1.8,
+    "jumps": 1.6, "jump": 1.4, "climbs": 1.3, "rises": 1.2, "rise": 1.0, "rose": 1.0, "gains": 1.4,
+    "higher": 1.0, "advances": 1.2, "rebounds": 1.4, "beats": 1.8, "upgrade": 1.8, "upgrades": 1.8,
+    "upgraded": 1.8, "outperform": 1.6, "bullish": 2.0, "buyback": 1.4, "inflows": 1.4, "netbuyers": 1.6,
+    "recordhigh": 1.8, "orderwin": 1.8,
+    # Down moves
+    "plunge": -2.2, "plunges": -2.2, "plunged": -2.2, "slump": -2.0, "slumps": -2.0, "tumbles": -2.0,
+    "tumble": -2.0, "crash": -2.6, "crashes": -2.6, "sinks": -1.8, "slides": -1.5, "falls": -1.4,
+    "fall": -1.2, "fell": -1.3, "slips": -1.3, "slip": -1.3, "declines": -1.3, "decline": -1.2,
+    "drops": -1.3, "dropped": -1.3, "sheds": -1.4, "lower": -1.0, "misses": -1.8, "downgrade": -1.8,
+    "downgrades": -1.8, "downgraded": -1.8, "bearish": -2.0, "underperform": -1.6, "selloff": -2.0,
+    "sell-off": -2.0, "outflows": -1.4, "netsellers": -1.6, "probe": -1.4, "penalty": -1.6,
+    "default": -2.2, "fraud": -2.8, "resigns": -1.2, "pledge": -0.8, "pledged": -0.8,
+}
+
+# Phrases collapsed into single tokens before scoring so VADER can see them.
+FINANCE_PHRASES = {
+    "net buyers": "netbuyers", "net buyer": "netbuyers", "net sellers": "netsellers",
+    "net seller": "netsellers", "record high": "recordhigh", "all-time high": "recordhigh",
+    "order win": "orderwin", "pull out": "outflows", "pulled out": "outflows",
 }
 
 
@@ -36,10 +60,22 @@ class VaderScorer:
 
     def __init__(self) -> None:
         self._a = SentimentIntensityAnalyzer()
-        self._a.lexicon.update({k: v for k, v in FINANCE_LEXICON.items() if " " not in k})
+        for word, val in FINANCE_LEXICON.items():
+            if val == 0.0:
+                # Remove rather than set to 0: VADER's caps rule turns an ALL-CAPS 0-valence word
+                # (e.g. "GIFT Nifty", "YES Bank") into a -0.73 hit.
+                self._a.lexicon.pop(word, None)
+            else:
+                self._a.lexicon[word] = val
 
     def score(self, text: str) -> float:
-        return float(self._a.polarity_scores(text or "")["compound"])
+        t = text or ""
+        low = t.lower()
+        for phrase, token in FINANCE_PHRASES.items():
+            if phrase in low:
+                t = re.sub(re.escape(phrase), token, t, flags=re.I)
+                low = t.lower()
+        return float(self._a.polarity_scores(t)["compound"])
 
 
 class FinbertScorer:

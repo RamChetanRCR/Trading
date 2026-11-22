@@ -10,6 +10,7 @@ settings:
 
 alerts:
   jump: 0.3             # alert if a score moves at least this much between runs
+  keep_days: 90         # history retention
 
 watchlist:
   # Short form: just the symbol (searches "<SYMBOL> share")
@@ -17,6 +18,7 @@ watchlist:
   # Long form: your own search queries per symbol
   - symbol: RELIANCE
     queries: ["Reliance Industries share", "RIL stock"]
+    match: ["Reliance", "RIL"]   # optional: drop headlines that don't name the company
   - symbol: TATAMOTORS
     queries: ["Tata Motors share"]
   - symbol: GOLD
